@@ -7,7 +7,11 @@
 <meta name="theme-color" content="#0f2d5e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.json">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onerror="this.remove()">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onerror="
+  var lnk=document.createElement('link');lnk.rel='stylesheet';
+  lnk.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';
+  document.head.appendChild(lnk);this.remove();
+">
 <style>
 /* === RESET & BASE === */
 :root {
@@ -243,8 +247,12 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 <div id="toast" class="toast"></div>
 
 <!-- LEAFLET (CDN, optional) -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window._noLeaflet=true"></script>
-
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="
+  var s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
+  s.onerror=function(){window._noLeaflet=true};
+  document.head.appendChild(s);
+"></script>
 <script>
 /* ============================
    IQ CAMPO — STANDALONE APP
@@ -336,7 +344,8 @@ function startCampaign() {
   document.getElementById('hdr-title').textContent = campanha;
   populateZmcFilter();
   renderAll();
-  startGPS();
+  // GPS starts in background - no error toasts on auto-start
+  startGPS(false);
 }
 
 function resumeCampaign() { startCampaign(); }
@@ -589,69 +598,119 @@ function exportReadings() {
 }
 
 // === MAP ===
+let lastAcc = 50;
+let leafletReady = false;
+let gpsStarted = false;
+
+// Check if Leaflet loaded (handles both onerror and slow load)
+function checkLeaflet() {
+  return typeof L !== 'undefined' && typeof L.map === 'function';
+}
+
 function initMap() {
-  if (map || window._noLeaflet) return;
+  if (map) { document.getElementById('no-map').style.display = 'none'; return; }
+  if (!checkLeaflet()) {
+    // Try loading Leaflet again
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.onload = () => { leafletReady = true; initMap(); };
+    s.onerror = () => {
+      // Try alternative CDN
+      const s2 = document.createElement('script');
+      s2.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
+      s2.onload = () => { leafletReady = true; initMap(); };
+      s2.onerror = () => {
+        document.getElementById('no-map').style.display = 'flex';
+        document.getElementById('mapa').style.display = 'none';
+      };
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s);
+    return;
+  }
   try {
     map = L.map('mapa', { center: [37.035, -8.025], zoom: 16, zoomControl: false, attributionControl: false });
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
     L.control.zoom({ position: 'bottomleft' }).addTo(map);
     document.getElementById('no-map').style.display = 'none';
-    // If GPS already has a fix, place the blue dot now
+    document.getElementById('mapa').style.display = 'block';
     if (lastPos) placeGPSDot(lastPos, lastAcc);
   } catch(e) {
+    console.error('Map init error:', e);
     document.getElementById('no-map').style.display = 'flex';
     document.getElementById('mapa').style.display = 'none';
   }
 }
 
-let lastAcc = 50;
-
 function placeGPSDot(latlng, accuracy) {
-  if (!map || typeof L === 'undefined') return;
+  if (!map || !checkLeaflet()) return;
   if (!userMk) {
-    userMk = L.circleMarker(latlng, { radius:8, color:'#fff', weight:3, fillColor:'#4285F4', fillOpacity:1, pane:'markerPane' }).addTo(map);
+    userMk = L.circleMarker(latlng, { radius:9, color:'#fff', weight:3, fillColor:'#4285F4', fillOpacity:1 }).addTo(map);
     userCi = L.circle(latlng, { radius: accuracy, color:'#4285F4', fillColor:'#4285F4', fillOpacity:.12, weight:1 }).addTo(map);
-    // Ensure blue dot is always on top
-    userMk.setZIndexOffset(10000);
-    map.setView(latlng, 17);
+    // Bring blue dot to front
+    if (userMk.bringToFront) userMk.bringToFront();
   } else {
     userMk.setLatLng(latlng);
     userCi.setLatLng(latlng).setRadius(accuracy);
+    if (userMk.bringToFront) userMk.bringToFront();
   }
 }
 
-function startGPS() {
-  if (!navigator.geolocation) { toast('GPS nao disponivel neste dispositivo'); return; }
-  navigator.geolocation.getCurrentPosition(
-    pos => {
-      lastPos = [pos.coords.latitude, pos.coords.longitude];
-      lastAcc = pos.coords.accuracy;
-      placeGPSDot(lastPos, lastAcc);
-      toast('GPS activo');
-    },
-    err => {
-      if (err.code === 1) toast('Permissao de localizacao negada — verifique as definicoes do browser');
-      else if (err.code === 2) toast('Localizacao indisponivel — verifique se o GPS esta ligado');
-      else toast('Tempo esgotado a obter localizacao');
-      console.warn('GPS error:', err.code, err.message);
-    },
-    { enableHighAccuracy: true, timeout: 10000 }
-  );
+function startGPS(showErrors) {
+  if (gpsStarted) return;
+  if (!navigator.geolocation) {
+    if (showErrors) toast('GPS nao disponivel neste dispositivo');
+    return;
+  }
+  gpsStarted = true;
+  // watchPosition is more reliable than getCurrentPosition on Android
   watchId = navigator.geolocation.watchPosition(
     pos => {
+      const isFirst = !lastPos;
       lastPos = [pos.coords.latitude, pos.coords.longitude];
       lastAcc = pos.coords.accuracy;
       placeGPSDot(lastPos, lastAcc);
+      if (isFirst) {
+        toast('GPS activo');
+        if (map) map.setView(lastPos, 17);
+      }
     },
-    err => { console.warn('GPS watch error:', err.code, err.message); },
-    { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
+    err => {
+      console.warn('GPS error:', err.code, err.message);
+      if (showErrors) {
+        if (err.code === 1) toast('Localizacao negada — abra Definicoes do Chrome > Sites > Localizacao');
+        else if (err.code === 2) toast('GPS indisponivel — verifique se o GPS esta ligado');
+        else toast('GPS: tempo esgotado, a tentar novamente...');
+      }
+      // Retry with lower accuracy as fallback
+      if (err.code !== 1 && !lastPos) {
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            lastPos = [pos.coords.latitude, pos.coords.longitude];
+            lastAcc = pos.coords.accuracy;
+            placeGPSDot(lastPos, lastAcc);
+            toast('GPS activo (baixa precisao)');
+            if (map) map.setView(lastPos, 17);
+          },
+          () => {},
+          { enableHighAccuracy: false, timeout: 30000, maximumAge: 60000 }
+        );
+      }
+    },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
   );
 }
 
 function centerMe() {
-  if (lastPos && map) map.setView(lastPos, 17);
-  else if (!lastPos) toast('A aguardar sinal GPS...');
+  if (lastPos && map) {
+    map.setView(lastPos, 17);
+  } else {
+    // Request GPS with user gesture (helps with Android permissions)
+    gpsStarted = false;
+    startGPS(true);
+    toast('A obter localizacao...');
+  }
 }
 
 // Group meters by location to handle overlapping markers
