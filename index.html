@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>IQ Campo</title>
+<meta name="theme-color" content="#0f2d5e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onerror="this.remove()">
+<style>
+/* === RESET & BASE === */
+:root {
+  --primary: #0f2d5e;
+  --primary-light: #1a5276;
+  --accent: #3498db;
+  --success: #27ae60;
+  --warning: #f39c12;
+  --danger: #e74c3c;
+  --bg: #f0f4f8;
+  --card: #ffffff;
+  --text: #2c3e50;
+  --muted: #7f8c8d;
+  --border: #dce4ec;
+  --tab-h: 60px;
+  --header-h: 56px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);overflow:hidden;-webkit-tap-highlight-color:transparent}
+
+/* === HEADER === */
+.hdr{position:fixed;top:0;left:0;right:0;height:var(--header-h);background:var(--primary);color:#fff;display:flex;align-items:center;padding:0 12px;z-index:1000;gap:8px}
+.hdr .t{font-size:1.1rem;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hdr button{background:none;border:none;color:#fff;font-size:1.3rem;padding:8px;cursor:pointer;border-radius:8px}
+.hdr button:active{background:rgba(255,255,255,.2)}
+
+/* === CONTENT === */
+.cnt{position:fixed;top:var(--header-h);bottom:var(--tab-h);left:0;right:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+
+/* === TABS === */
+.tabs{position:fixed;bottom:0;left:0;right:0;height:var(--tab-h);background:var(--card);border-top:1px solid var(--border);display:flex;z-index:1000}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.7rem;color:var(--muted);cursor:pointer;border:none;background:none}
+.tab svg{width:22px;height:22px;fill:currentColor}
+.tab.active{color:var(--accent);font-weight:600}
+
+/* === VIEWS === */
+.view{display:none;height:100%}.view.active{display:flex;flex-direction:column}
+
+/* === WELCOME === */
+.welcome{padding:24px 16px;display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center}
+.welcome h1{font-size:1.5rem;color:var(--primary)}
+.welcome p{font-size:.9rem;color:var(--muted);max-width:320px}
+.welcome .drop-zone{width:100%;max-width:360px;border:3px dashed var(--border);border-radius:16px;padding:40px 20px;cursor:pointer;transition:border-color .2s}
+.welcome .drop-zone:active,.welcome .drop-zone.drag{border-color:var(--accent)}
+.welcome .drop-zone svg{width:48px;height:48px;fill:var(--muted);margin-bottom:12px}
+.welcome .drop-zone .label{font-size:1rem;font-weight:600;color:var(--primary)}
+.welcome .drop-zone .sub{font-size:.8rem;color:var(--muted);margin-top:4px}
+
+/* === FILTERS === */
+.filters{padding:8px 12px;background:var(--card);border-bottom:1px solid var(--border);display:flex;gap:8px}
+.filters select,.filters input{flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:.9rem;background:var(--bg)}
+
+/* === LIST === */
+.list{flex:1;overflow-y:auto;padding:8px 12px;-webkit-overflow-scrolling:touch}
+.mc{background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:8px;box-shadow:0 1px 4px rgba(0,0,0,.06);cursor:pointer;border-left:4px solid var(--warning);transition:transform .1s}
+.mc:active{transform:scale(.98)}
+.mc.done{border-left-color:var(--success);opacity:.7}
+.mc.disc{border-left-color:var(--danger)}
+.mc.fech{border-left-color:var(--muted);opacity:.5}
+.mc .top{display:flex;justify-content:space-between;align-items:center}
+.mc .sn{font-weight:700;font-size:.95rem;color:var(--primary)}
+.mc .zm{font-size:.75rem;background:var(--bg);padding:2px 8px;border-radius:6px;color:var(--muted)}
+.mc .mo{font-size:.85rem;margin-top:4px}
+.mc .rf{font-size:.8rem;color:var(--muted);margin-top:2px}
+.mc .rv{font-size:.85rem;color:var(--success);font-weight:600;margin-top:2px}
+
+/* === MAP === */
+#mapa{flex:1;width:100%;min-height:100%}
+.center-btn{position:absolute;bottom:20px;right:12px;z-index:800;width:44px;height:44px;background:#fff;border-radius:50%;border:2px solid rgba(0,0,0,.2);display:flex;align-items:center;justify-content:center;font-size:1.3rem;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.2);color:var(--accent)}
+.no-map{display:flex;align-items:center;justify-content:center;flex:1;color:var(--muted);font-size:.9rem;text-align:center;padding:20px}
+.gps-status{font-size:.75rem;color:var(--muted);padding:4px 12px;background:var(--card);border-bottom:1px solid var(--border);display:none}
+.gps-status.active{display:block}
+
+/* === PROGRESS === */
+.prog{padding:16px;overflow-y:auto;flex:1}
+.prog-global{background:var(--card);border-radius:12px;padding:16px;margin-bottom:16px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.prog-global .big{font-size:2.5rem;font-weight:700;color:var(--primary)}
+.prog-global .lbl{font-size:.9rem;color:var(--muted)}
+.bar-wrap{width:100%;height:12px;background:var(--border);border-radius:6px;margin-top:12px;overflow:hidden}
+.bar-fill{height:100%;background:var(--success);border-radius:6px;transition:width .3s}
+.zmc-item{background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:8px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.zmc-item .nm{font-weight:600;font-size:.9rem}
+.zmc-item .ct{font-size:.8rem;color:var(--muted);margin-top:2px}
+
+/* === MODAL === */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:none;align-items:flex-end;justify-content:center}
+.modal-bg.vis{display:flex}
+.modal{background:var(--card);border-radius:16px 16px 0 0;width:100%;max-width:500px;max-height:90vh;overflow-y:auto;padding:20px 16px 32px;animation:su .2s ease}
+@keyframes su{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal .mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.modal .mh .sn{font-weight:700;font-size:1.1rem;color:var(--primary)}
+.modal .mx{background:none;border:none;font-size:1.5rem;color:var(--muted);cursor:pointer;padding:4px 8px}
+.modal .ir{display:flex;justify-content:space-between;font-size:.85rem;color:var(--muted);margin-bottom:4px}
+.modal .rb{background:var(--bg);border-radius:8px;padding:10px 12px;margin:12px 0;text-align:center}
+.modal .rb .rl{font-size:.8rem;color:var(--muted)}
+.modal .rb .rv{font-size:1.3rem;font-weight:700;color:var(--primary)}
+.modal .ig{margin:16px 0}
+.modal .ig label{display:block;font-size:.85rem;font-weight:600;margin-bottom:6px}
+.modal .ig input{width:100%;padding:14px;font-size:1.8rem;font-weight:700;text-align:center;border:2px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);-webkit-appearance:none}
+.modal .ig input:focus{outline:none;border-color:var(--accent)}
+.modal .wb{background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px 12px;font-size:.85rem;color:#856404;margin-bottom:12px;display:none}
+.modal .wb.dng{background:#f8d7da;border-color:#f5c2c7;color:#842029}
+.modal .wb.vis{display:block}
+.modal .bs{width:100%;padding:14px;font-size:1.1rem;font-weight:700;background:var(--success);color:#fff;border:none;border-radius:10px;cursor:pointer;margin-bottom:8px}
+.modal .bs:active{opacity:.85}
+.modal .bf{width:100%;padding:10px;font-size:.9rem;background:none;color:var(--muted);border:1px solid var(--border);border-radius:10px;cursor:pointer}
+
+/* === TOAST === */
+.toast{position:fixed;bottom:calc(var(--tab-h) + 12px);left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;padding:10px 20px;border-radius:8px;font-size:.85rem;z-index:3000;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.vis{opacity:1}
+
+/* === EMPTY === */
+.empty{text-align:center;padding:40px 20px;color:var(--muted)}
+.empty svg{width:48px;height:48px;fill:var(--muted);margin-bottom:12px;display:block;margin-left:auto;margin-right:auto}
+
+/* === EXPORT BTN === */
+.export-bar{padding:8px 12px;background:var(--card);border-top:1px solid var(--border)}
+.export-bar button{width:100%;padding:12px;font-size:.95rem;font-weight:600;border-radius:10px;cursor:pointer;border:none}
+.btn-export{background:var(--accent);color:#fff}
+.btn-export:active{opacity:.85}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="hdr">
+  <button onclick="resetApp()" title="Voltar" id="btn-back" style="display:none">&#8592;</button>
+  <span class="t" id="hdr-title">IQ Campo</span>
+  <button onclick="exportReadings()" title="Exportar leituras" id="btn-export-hdr" style="display:none">&#8681;</button>
+</header>
+
+<!-- CONTENT -->
+<div class="cnt">
+  <!-- WELCOME / FILE LOAD -->
+  <div id="welcome" class="welcome">
+    <div style="margin-top:20px">
+      <svg viewBox="0 0 24 24" width="64" height="64" fill="#0f2d5e"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+    </div>
+    <h1>IQ Campo</h1>
+    <p>Carregue o ficheiro JSON da campanha exportado do IQHAI2O para comecar a recolher leituras.</p>
+
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-in').click()">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6zm8-6.5c0 .28-.22.5-.5.5h-3c-.28 0-.5-.22-.5-.5V11H8.5L12 7.5 15.5 11H14v2.5z"/></svg>
+      <div class="label">Carregar Campanha</div>
+      <div class="sub">Toque para seleccionar ficheiro .json</div>
+    </div>
+    <input type="file" id="file-in" accept=".json" style="display:none" onchange="loadFile(this)">
+
+    <div id="resume-block" style="display:none;width:100%;max-width:360px">
+      <div style="height:1px;background:var(--border);margin:12px 0"></div>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:8px">Campanha em curso:</p>
+      <button onclick="resumeCampaign()" id="resume-btn" style="width:100%;padding:14px;font-size:1rem;font-weight:600;background:var(--primary);color:#fff;border:none;border-radius:10px;cursor:pointer">
+        Continuar
+      </button>
+    </div>
+  </div>
+
+  <!-- MAIN VIEWS (hidden until campaign loaded) -->
+  <div id="main" style="display:none;height:100%">
+
+    <!-- LIST VIEW -->
+    <div id="v-list" class="view active">
+      <div class="filters">
+        <select id="f-zmc" onchange="zFilt=this.value;renderList()">
+          <option value="">Todas ZMCs</option>
+        </select>
+        <input type="search" id="f-search" placeholder="Pesquisar..." oninput="sFilt=this.value;renderList()">
+      </div>
+      <div id="list-items" class="list"></div>
+      <div class="export-bar" id="export-bar" style="display:none">
+        <button class="btn-export" onclick="exportReadings()">Exportar Leituras (CSV)</button>
+      </div>
+    </div>
+
+    <!-- MAP VIEW -->
+    <div id="v-map" class="view" style="position:relative">
+      <div id="mapa"></div>
+      <div id="no-map" class="no-map" style="display:none">Mapa indisponivel sem ligacao a internet.</div>
+      <button class="center-btn" onclick="centerMe()" title="Centrar em mim">&#8982;</button>
+    </div>
+
+    <!-- PROGRESS VIEW -->
+    <div id="v-prog" class="view">
+      <div id="prog-cnt" class="prog"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- TABS -->
+<nav class="tabs" id="nav-tabs" style="display:none">
+  <button class="tab active" data-v="list" onclick="switchV('list')">
+    <svg viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+    <span>Lista</span>
+  </button>
+  <button class="tab" data-v="map" onclick="switchV('map')">
+    <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+    <span>Mapa</span>
+  </button>
+  <button class="tab" data-v="progress" onclick="switchV('progress')">
+    <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+    <span>Progresso</span>
+  </button>
+</nav>
+
+<!-- READING MODAL -->
+<div id="r-modal" class="modal-bg" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="mh">
+      <button class="mx" onclick="closeModal()">&times;</button>
+      <span class="sn" id="m-snno"></span>
+    </div>
+    <div id="m-morada" style="font-size:.95rem;margin-bottom:4px"></div>
+    <div class="ir">
+      <span id="m-serie"></span>
+      <span id="m-zmc"></span>
+    </div>
+    <div class="rb">
+      <div class="rl">Referencia do Sistema</div>
+      <div class="rv" id="m-ref">N/D</div>
+    </div>
+    <div class="ig">
+      <label for="m-input">Leitura (m3)</label>
+      <input type="number" id="m-input" inputmode="decimal" step="0.1" min="0" placeholder="0.0" oninput="validateInput()">
+    </div>
+    <div id="m-warn" class="wb"></div>
+    <button class="bs" onclick="saveReading()">Guardar Leitura</button>
+    <button class="bf" onclick="saveFechado()">&#128274; Marcar como Fechado</button>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast"></div>
+
+<!-- LEAFLET (CDN, optional) -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window._noLeaflet=true"></script>
+
+<script>
+/* ============================
+   IQ CAMPO — STANDALONE APP
+   ============================ */
+
+// === STATE ===
+let campanha = null;    // campaign name
+let meters = [];        // array of meter objects from JSON
+let readings = {};      // snno -> {snno, leitura_m3, data_leitura, timestamp, fechado}
+let curView = 'list';
+let zFilt = '';
+let sFilt = '';
+let modalSnno = null;
+
+// Map state
+let map = null, userMk = null, userCi = null, mMarkers = {}, lastPos = null, watchId = null;
+
+const STORAGE_KEY = 'iqh_campo';
+
+// === PERSISTENCE (localStorage) ===
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      campanha, meters, readings, ts: Date.now()
+    }));
+  } catch(e) { console.warn('localStorage full:', e); }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    if (!s.campanha || !s.meters) return false;
+    campanha = s.campanha;
+    meters = s.meters;
+    readings = s.readings || {};
+    return true;
+  } catch(e) { return false; }
+}
+
+function clearState() {
+  localStorage.removeItem(STORAGE_KEY);
+  campanha = null; meters = []; readings = {};
+}
+
+// === FILE LOADING ===
+function loadFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.meters || !data.campanha) {
+        toast('Ficheiro JSON invalido — falta "campanha" ou "meters"');
+        return;
+      }
+      campanha = data.campanha;
+      meters = data.meters;
+      readings = {};
+      // Preserve existing readings if reloading same campaign
+      const old = localStorage.getItem(STORAGE_KEY);
+      if (old) {
+        try {
+          const prev = JSON.parse(old);
+          if (prev.campanha === campanha && prev.readings) {
+            readings = prev.readings;
+            toast('Leituras anteriores recuperadas');
+          }
+        } catch(ex) {}
+      }
+      saveState();
+      startCampaign();
+    } catch(ex) {
+      toast('Erro ao ler ficheiro: ' + ex.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// === CAMPAIGN START ===
+function startCampaign() {
+  document.getElementById('welcome').style.display = 'none';
+  document.getElementById('main').style.display = 'block';
+  document.getElementById('nav-tabs').style.display = 'flex';
+  document.getElementById('btn-back').style.display = '';
+  document.getElementById('btn-export-hdr').style.display = '';
+  document.getElementById('hdr-title').textContent = campanha;
+  populateZmcFilter();
+  renderAll();
+  startGPS();
+}
+
+function resumeCampaign() { startCampaign(); }
+
+function resetApp() {
+  if (Object.keys(readings).length > 0) {
+    if (!confirm('Tem ' + Object.keys(readings).length + ' leitura(s). Deseja voltar ao inicio? (os dados nao se perdem)')) return;
+  }
+  document.getElementById('main').style.display = 'none';
+  document.getElementById('nav-tabs').style.display = 'none';
+  document.getElementById('btn-back').style.display = 'none';
+  document.getElementById('btn-export-hdr').style.display = 'none';
+  document.getElementById('hdr-title').textContent = 'IQ Campo';
+  document.getElementById('welcome').style.display = 'flex';
+  checkResume();
+  switchV('list');
+}
+
+// === INIT ===
+function checkResume() {
+  if (loadState() && meters.length > 0) {
+    const rb = document.getElementById('resume-block');
+    const btn = document.getElementById('resume-btn');
+    const nRead = Object.keys(readings).length;
+    btn.textContent = campanha + ' (' + nRead + '/' + meters.length + ' lidos)';
+    rb.style.display = 'block';
+  }
+}
+
+// === ZMC FILTER ===
+function populateZmcFilter() {
+  const sel = document.getElementById('f-zmc');
+  sel.innerHTML = '<option value="">Todas ZMCs</option>';
+  const zmcs = [...new Set(meters.map(m => m.zmc_nome).filter(Boolean))].sort();
+  zmcs.forEach(z => {
+    const o = document.createElement('option');
+    o.value = z; o.textContent = z;
+    sel.appendChild(o);
+  });
+}
+
+// === RENDER ===
+function renderAll() {
+  renderList();
+  renderProgress();
+  updateExportBar();
+  if (curView === 'map' && !window._noLeaflet) {
+    initMap();
+    renderMarkers();
+  }
+}
+
+function getFiltered() {
+  let list = meters.slice();
+  if (zFilt) list = list.filter(m => m.zmc_nome === zFilt);
+  if (sFilt) {
+    const q = sFilt.toLowerCase();
+    list = list.filter(m =>
+      String(m.snno).includes(q) ||
+      (m.morada||'').toLowerCase().includes(q) ||
+      (m.serie_contador||'').toLowerCase().includes(q)
+    );
+  }
+  // Sort: pending first
+  list.sort((a,b) => {
+    const ar = readings[a.snno], br = readings[b.snno];
+    const aHas = ar || (a.existing_reading != null);
+    const bHas = br || (b.existing_reading != null);
+    if (aHas && !bHas) return 1;
+    if (!aHas && bHas) return -1;
+    return 0;
+  });
+  return list;
+}
+
+function renderList() {
+  const c = document.getElementById('list-items');
+  const filtered = getFiltered();
+  if (!filtered.length) {
+    c.innerHTML = '<div class="empty"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>Nenhum contador encontrado</div>';
+    return;
+  }
+  let html = '';
+  filtered.forEach(m => {
+    const r = readings[m.snno];
+    const hasServer = m.existing_reading != null;
+    const isRead = r || hasServer;
+    const isFech = (r && r.fechado) || (hasServer && m.existing_status === 'Fechado');
+    const isDisc = r && r.disc;
+    let cls = '';
+    if (isFech) cls = 'fech';
+    else if (isDisc) cls = 'disc';
+    else if (isRead) cls = 'done';
+
+    const ref = m.reference_m3 != null ? 'Ref: ' + Number(m.reference_m3).toFixed(1) + ' m3' : 'Ref: N/D';
+    let rv = '';
+    if (r && !r.fechado) rv = 'Leitura: ' + Number(r.leitura_m3).toFixed(1) + ' m3';
+    else if (r && r.fechado) rv = 'Fechado';
+    else if (hasServer && m.existing_status !== 'Fechado') rv = 'Leitura: ' + Number(m.existing_reading).toFixed(1) + ' m3';
+    else if (hasServer) rv = 'Fechado';
+
+    html += '<div class="mc ' + cls + '" onclick="openModal(' + m.snno + ')">' +
+      '<div class="top"><span class="sn">' + m.snno + '</span><span class="zm">' + esc(m.zmc_nome||'') + '</span></div>' +
+      '<div class="mo">' + esc(m.morada||'Sem morada') + '</div>' +
+      '<div class="rf">' + ref + ' &middot; Serie: ' + esc(m.serie_contador||'N/D') + '</div>' +
+      (rv ? '<div class="rv">' + rv + '</div>' : '') +
+      '</div>';
+  });
+  c.innerHTML = html;
+}
+
+function renderProgress() {
+  const c = document.getElementById('prog-cnt');
+  const total = meters.length;
+  const readCount = meters.filter(m => readings[m.snno] || m.existing_reading != null).length;
+  const pending = total - readCount;
+  const pct = total > 0 ? Math.round(readCount / total * 100) : 0;
+
+  const zm = {};
+  meters.forEach(m => {
+    const z = m.zmc_nome || 'Sem ZMC';
+    if (!zm[z]) zm[z] = {t:0, r:0};
+    zm[z].t++;
+    if (readings[m.snno] || m.existing_reading != null) zm[z].r++;
+  });
+
+  let zhtml = '';
+  Object.entries(zm).sort(([a],[b]) => a.localeCompare(b)).forEach(([z, d]) => {
+    const zp = d.t > 0 ? Math.round(d.r / d.t * 100) : 0;
+    zhtml += '<div class="zmc-item"><div class="nm">' + esc(z) + '</div>' +
+      '<div class="ct">' + d.r + '/' + d.t + ' (' + zp + '%)</div>' +
+      '<div class="bar-wrap" style="height:6px;margin-top:6px"><div class="bar-fill" style="width:' + zp + '%"></div></div></div>';
+  });
+
+  c.innerHTML = '<div class="prog-global"><div class="big">' + pct + '%</div>' +
+    '<div class="lbl">' + readCount + ' de ' + total + ' contadores lidos &middot; ' + pending + ' pendentes</div>' +
+    '<div class="bar-wrap"><div class="bar-fill" style="width:' + pct + '%"></div></div></div>' + zhtml;
+}
+
+function updateExportBar() {
+  const bar = document.getElementById('export-bar');
+  const count = Object.keys(readings).length;
+  bar.style.display = count > 0 ? 'block' : 'none';
+}
+
+// === MODAL ===
+function openModal(snno) {
+  const m = meters.find(x => x.snno === snno);
+  if (!m) return;
+  modalSnno = snno;
+  document.getElementById('m-snno').textContent = snno;
+  document.getElementById('m-morada').textContent = m.morada || 'Sem morada';
+  document.getElementById('m-serie').textContent = 'Serie: ' + (m.serie_contador || 'N/D');
+  document.getElementById('m-zmc').textContent = 'ZMC: ' + (m.zmc_nome || 'N/D');
+  document.getElementById('m-ref').textContent = m.reference_m3 != null ? Number(m.reference_m3).toFixed(1) + ' m3' : 'N/D';
+  const inp = document.getElementById('m-input');
+  const existing = readings[snno];
+  inp.value = existing && !existing.fechado ? existing.leitura_m3 : '';
+  document.getElementById('m-warn').className = 'wb';
+  document.getElementById('r-modal').classList.add('vis');
+  setTimeout(() => inp.focus(), 200);
+}
+
+function closeModal() {
+  document.getElementById('r-modal').classList.remove('vis');
+  modalSnno = null;
+}
+
+function validateInput() {
+  const inp = document.getElementById('m-input');
+  const warn = document.getElementById('m-warn');
+  const m = meters.find(x => x.snno === modalSnno);
+  if (!m || !inp.value) { warn.className = 'wb'; return; }
+  const val = parseFloat(inp.value);
+  const ref = m.reference_m3;
+  if (isNaN(val) || ref == null) { warn.className = 'wb'; return; }
+  const diff = Math.floor(val) - Math.floor(ref);
+  if (diff < -10) {
+    warn.textContent = 'Leitura inferior a referencia em ' + Math.abs(diff) + ' m3. Verifique o valor.';
+    warn.className = 'wb dng vis';
+  } else if (diff > 50) {
+    warn.textContent = 'Diferenca de +' + diff + ' m3 em relacao a referencia. Confirme o valor.';
+    warn.className = 'wb vis';
+  } else {
+    warn.className = 'wb';
+  }
+}
+
+function saveReading() {
+  if (!modalSnno) return;
+  const val = parseFloat(document.getElementById('m-input').value);
+  if (isNaN(val)) { toast('Introduza um valor numerico'); return; }
+  const m = meters.find(x => x.snno === modalSnno);
+  const ref = m ? m.reference_m3 : null;
+  const diff = ref != null ? Math.floor(val) - Math.floor(ref) : null;
+  readings[modalSnno] = {
+    snno: modalSnno,
+    serie_contador: m ? m.serie_contador : null,
+    leitura_m3: val,
+    data_leitura: new Date().toISOString().slice(0,10),
+    timestamp: new Date().toISOString(),
+    fechado: false,
+    disc: diff != null && (diff < -10 || diff > 50),
+  };
+  saveState();
+  closeModal();
+  renderAll();
+  toast('Leitura guardada');
+}
+
+function saveFechado() {
+  if (!modalSnno) return;
+  const m = meters.find(x => x.snno === modalSnno);
+  readings[modalSnno] = {
+    snno: modalSnno,
+    serie_contador: m ? m.serie_contador : null,
+    leitura_m3: null,
+    data_leitura: new Date().toISOString().slice(0,10),
+    timestamp: new Date().toISOString(),
+    fechado: true,
+    disc: false,
+  };
+  saveState();
+  closeModal();
+  renderAll();
+  toast('Marcado como fechado');
+}
+
+// === EXPORT ===
+function exportReadings() {
+  const rList = Object.values(readings);
+  if (!rList.length) { toast('Sem leituras para exportar'); return; }
+  // CSV format compatible with IQHAI2O /api/leituras/import
+  let csv = 'SNNO;Serie;Leitura_m3;Data_Leitura\n';
+  rList.forEach(r => {
+    const leitura = r.fechado ? 'Fechado' : (r.leitura_m3 != null ? r.leitura_m3 : '');
+    csv += r.snno + ';' + (r.serie_contador || '') + ';' + leitura + ';' + r.data_leitura + '\n';
+  });
+  const blob = new Blob(['\uFEFF' + csv], {type: 'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safeName = (campanha || 'leituras').replace(/[^a-zA-Z0-9_-]/g, '_');
+  a.download = 'leituras_' + safeName + '_' + new Date().toISOString().slice(0,10) + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast(rList.length + ' leitura(s) exportada(s)');
+}
+
+// === MAP ===
+function initMap() {
+  if (map || window._noLeaflet) return;
+  try {
+    map = L.map('mapa', { center: [37.035, -8.025], zoom: 16, zoomControl: false, attributionControl: false });
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
+    L.control.zoom({ position: 'bottomleft' }).addTo(map);
+    document.getElementById('no-map').style.display = 'none';
+    // If GPS already has a fix, place the blue dot now
+    if (lastPos) placeGPSDot(lastPos, lastAcc);
+  } catch(e) {
+    document.getElementById('no-map').style.display = 'flex';
+    document.getElementById('mapa').style.display = 'none';
+  }
+}
+
+let lastAcc = 50;
+
+function placeGPSDot(latlng, accuracy) {
+  if (!map || typeof L === 'undefined') return;
+  if (!userMk) {
+    userMk = L.circleMarker(latlng, { radius:8, color:'#fff', weight:3, fillColor:'#4285F4', fillOpacity:1, pane:'markerPane' }).addTo(map);
+    userCi = L.circle(latlng, { radius: accuracy, color:'#4285F4', fillColor:'#4285F4', fillOpacity:.12, weight:1 }).addTo(map);
+    // Ensure blue dot is always on top
+    userMk.setZIndexOffset(10000);
+    map.setView(latlng, 17);
+  } else {
+    userMk.setLatLng(latlng);
+    userCi.setLatLng(latlng).setRadius(accuracy);
+  }
+}
+
+function startGPS() {
+  if (!navigator.geolocation) { toast('GPS nao disponivel neste dispositivo'); return; }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      lastPos = [pos.coords.latitude, pos.coords.longitude];
+      lastAcc = pos.coords.accuracy;
+      placeGPSDot(lastPos, lastAcc);
+      toast('GPS activo');
+    },
+    err => {
+      if (err.code === 1) toast('Permissao de localizacao negada — verifique as definicoes do browser');
+      else if (err.code === 2) toast('Localizacao indisponivel — verifique se o GPS esta ligado');
+      else toast('Tempo esgotado a obter localizacao');
+      console.warn('GPS error:', err.code, err.message);
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+  watchId = navigator.geolocation.watchPosition(
+    pos => {
+      lastPos = [pos.coords.latitude, pos.coords.longitude];
+      lastAcc = pos.coords.accuracy;
+      placeGPSDot(lastPos, lastAcc);
+    },
+    err => { console.warn('GPS watch error:', err.code, err.message); },
+    { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
+  );
+}
+
+function centerMe() {
+  if (lastPos && map) map.setView(lastPos, 17);
+  else if (!lastPos) toast('A aguardar sinal GPS...');
+}
+
+// Group meters by location to handle overlapping markers
+function groupByLocation(meterList) {
+  const groups = {};
+  meterList.forEach(m => {
+    if (!m.lat || !m.lon) return;
+    // Round to ~1m precision to detect same-location meters
+    const key = m.lat.toFixed(5) + ',' + m.lon.toFixed(5);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(m);
+  });
+  return groups;
+}
+
+function getMeterStatus(m) {
+  const r = readings[m.snno];
+  const hasServer = m.existing_reading != null;
+  if (r) return r.fechado ? 'fech' : (r.disc ? 'disc' : 'done');
+  if (hasServer) return m.existing_status === 'Fechado' ? 'fech' : 'done';
+  return 'pending';
+}
+
+function getGroupStatus(group) {
+  // If any meter is pending, the group marker is pending (orange)
+  const statuses = group.map(m => getMeterStatus(m));
+  if (statuses.includes('pending')) return 'pending';
+  if (statuses.includes('disc')) return 'disc';
+  if (statuses.every(s => s === 'fech')) return 'fech';
+  return 'done';
+}
+
+function buildMeterPopupRow(m) {
+  const r = readings[m.snno];
+  const st = getMeterStatus(m);
+  const ref = m.reference_m3 != null ? Number(m.reference_m3).toFixed(1) : 'N/D';
+  let readTxt = '';
+  if (r && !r.fechado) readTxt = '<span style="color:#27ae60;font-weight:700">' + Number(r.leitura_m3).toFixed(1) + ' m3</span>';
+  else if (r && r.fechado) readTxt = '<span style="color:#95a5a6">Fechado</span>';
+  else if (m.existing_reading != null && m.existing_status !== 'Fechado') readTxt = '<span style="color:#27ae60">' + Number(m.existing_reading).toFixed(1) + ' m3</span>';
+  else if (m.existing_reading != null) readTxt = '<span style="color:#95a5a6">Fechado</span>';
+
+  const stColors = { pending: '#f39c12', done: '#27ae60', disc: '#e74c3c', fech: '#95a5a6' };
+  const dot = '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + stColors[st] + ';margin-right:6px"></span>';
+
+  return '<div style="padding:6px 0;border-bottom:1px solid #eee">' +
+    '<div style="display:flex;align-items:center">' + dot +
+    '<strong style="color:#0f2d5e">' + m.snno + '</strong>' +
+    (readTxt ? '<span style="margin-left:auto;font-size:.85rem">' + readTxt + '</span>' : '') +
+    '</div>' +
+    '<div style="font-size:.8rem;color:#7f8c8d;margin-top:2px">' + esc(m.morada||'') + ' &middot; Ref: ' + ref + ' m3</div>' +
+    (st === 'pending' ? '<button onclick="openModal(' + m.snno + ')" style="margin-top:4px;width:100%;padding:6px;background:#27ae60;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:.85rem">Registar ' + m.snno + '</button>' : '') +
+    '</div>';
+}
+
+function renderMarkers() {
+  if (!map || window._noLeaflet) return;
+  Object.values(mMarkers).forEach(mk => map.removeLayer(mk));
+  mMarkers = {};
+  const colors = { pending: '#f39c12', done: '#27ae60', disc: '#e74c3c', fech: '#95a5a6' };
+
+  const groups = groupByLocation(meters);
+
+  Object.entries(groups).forEach(([key, group]) => {
+    const lat = group[0].lat, lon = group[0].lon;
+    const gSt = getGroupStatus(group);
+    const hasPending = group.some(m => getMeterStatus(m) === 'pending');
+    const count = group.length;
+
+    const mk = L.circleMarker([lat, lon], {
+      radius: hasPending ? (count > 1 ? 10 : 7) : (count > 1 ? 9 : 6),
+      color: '#fff', weight: count > 1 ? 2.5 : 1.5,
+      fillColor: colors[gSt], fillOpacity: .9
+    }).addTo(map);
+
+    // Build popup content
+    let popupHtml = '<div style="min-width:200px;max-height:300px;overflow-y:auto;font-family:sans-serif">';
+    if (count > 1) {
+      popupHtml += '<div style="font-weight:700;font-size:.9rem;color:#0f2d5e;margin-bottom:6px;border-bottom:2px solid #0f2d5e;padding-bottom:4px">' + count + ' contadores neste local</div>';
+    }
+    group.forEach(m => { popupHtml += buildMeterPopupRow(m); });
+    popupHtml += '</div>';
+
+    mk.bindPopup(popupHtml, { maxWidth: 280, maxHeight: 320 });
+
+    // Store marker ref for each snno in the group
+    group.forEach(m => { mMarkers[m.snno] = mk; });
+  });
+
+  const arr = Object.values(mMarkers);
+  // Deduplicate markers for fitBounds
+  const unique = [...new Set(arr)];
+  if (unique.length > 0 && !lastPos) {
+    map.fitBounds(L.featureGroup(unique).getBounds().pad(0.1));
+  }
+}
+
+// === VIEW SWITCHING ===
+function switchV(v) {
+  curView = v;
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('v-' + v)?.classList.add('active');
+  document.querySelector('.tab[data-v="' + v + '"]')?.classList.add('active');
+  if (v === 'map' && !window._noLeaflet) {
+    initMap();
+    if (map) setTimeout(() => map.invalidateSize(), 100);
+    renderMarkers();
+  }
+}
+
+// === HELPERS ===
+function esc(s) { const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('vis');
+  setTimeout(() => t.classList.remove('vis'), 2500);
+}
+
+// === DRAG & DROP ===
+const dz = document.getElementById('drop-zone');
+if (dz) {
+  ['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); }));
+  dz.addEventListener('drop', e => {
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      const dt = new DataTransfer(); dt.items.add(file);
+      document.getElementById('file-in').files = dt.files;
+      loadFile(document.getElementById('file-in'));
+    }
+  });
+}
+
+// === STARTUP ===
+checkResume();
+
+// Register service worker for PWA + offline
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js')
+    .then(r => console.log('SW registered:', r.scope))
+    .catch(e => console.warn('SW error:', e));
+}
+</script>
+</body>
+</html>

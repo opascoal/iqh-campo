@@ -1,0 +1,14 @@
+{
+  "name": "IQ Campo — Leituras",
+  "short_name": "IQ Campo",
+  "description": "Recolha de leituras de contadores no terreno",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0f2d5e",
+  "background_color": "#f0f4f8",
+  "icons": [
+    { "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230f2d5e'/><text x='50' y='62' text-anchor='middle' font-size='36' font-weight='bold' fill='%233498db'>IQ</text><text x='50' y='85' text-anchor='middle' font-size='18' fill='white'>Campo</text></svg>", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
