@@ -7,11 +7,7 @@
 <meta name="theme-color" content="#0f2d5e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.json">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onerror="
-  var lnk=document.createElement('link');lnk.rel='stylesheet';
-  lnk.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';
-  document.head.appendChild(lnk);this.remove();
-">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
 <style>
 /* === RESET & BASE === */
 :root {
@@ -247,12 +243,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 <div id="toast" class="toast"></div>
 
 <!-- LEAFLET (CDN, optional) -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="
-  var s=document.createElement('script');
-  s.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
-  s.onerror=function(){window._noLeaflet=true};
-  document.head.appendChild(s);
-"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 /* ============================
    IQ CAMPO — STANDALONE APP
@@ -599,33 +590,17 @@ function exportReadings() {
 
 // === MAP ===
 let lastAcc = 50;
-let leafletReady = false;
 let gpsStarted = false;
 
-// Check if Leaflet loaded (handles both onerror and slow load)
-function checkLeaflet() {
-  return typeof L !== 'undefined' && typeof L.map === 'function';
-}
-
 function initMap() {
-  if (map) { document.getElementById('no-map').style.display = 'none'; return; }
-  if (!checkLeaflet()) {
-    // Try loading Leaflet again
-    const s = document.createElement('script');
-    s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    s.onload = () => { leafletReady = true; initMap(); };
-    s.onerror = () => {
-      // Try alternative CDN
-      const s2 = document.createElement('script');
-      s2.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
-      s2.onload = () => { leafletReady = true; initMap(); };
-      s2.onerror = () => {
-        document.getElementById('no-map').style.display = 'flex';
-        document.getElementById('mapa').style.display = 'none';
-      };
-      document.head.appendChild(s2);
-    };
-    document.head.appendChild(s);
+  if (map) return;
+  var noMapEl = document.getElementById('no-map');
+  var mapaEl = document.getElementById('mapa');
+
+  if (typeof L === 'undefined' || typeof L.map !== 'function') {
+    noMapEl.textContent = 'Leaflet nao carregou. Verifique a ligacao a internet e recarregue a pagina.';
+    noMapEl.style.display = 'flex';
+    mapaEl.style.display = 'none';
     return;
   }
   try {
@@ -633,18 +608,18 @@ function initMap() {
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
     L.control.zoom({ position: 'bottomleft' }).addTo(map);
-    document.getElementById('no-map').style.display = 'none';
-    document.getElementById('mapa').style.display = 'block';
+    noMapEl.style.display = 'none';
+    mapaEl.style.display = 'block';
     if (lastPos) placeGPSDot(lastPos, lastAcc);
   } catch(e) {
-    console.error('Map init error:', e);
-    document.getElementById('no-map').style.display = 'flex';
-    document.getElementById('mapa').style.display = 'none';
+    noMapEl.textContent = 'Erro ao iniciar mapa: ' + e.message;
+    noMapEl.style.display = 'flex';
+    mapaEl.style.display = 'none';
   }
 }
 
 function placeGPSDot(latlng, accuracy) {
-  if (!map || !checkLeaflet()) return;
+  if (!map || typeof L === 'undefined') return;
   if (!userMk) {
     userMk = L.circleMarker(latlng, { radius:9, color:'#fff', weight:3, fillColor:'#4285F4', fillOpacity:1 }).addTo(map);
     userCi = L.circle(latlng, { radius: accuracy, color:'#4285F4', fillColor:'#4285F4', fillOpacity:.12, weight:1 }).addTo(map);
@@ -815,10 +790,9 @@ function switchV(v) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('v-' + v)?.classList.add('active');
   document.querySelector('.tab[data-v="' + v + '"]')?.classList.add('active');
-  if (v === 'map' && !window._noLeaflet) {
+  if (v === 'map') {
     initMap();
-    if (map) setTimeout(() => map.invalidateSize(), 100);
-    renderMarkers();
+    if (map) setTimeout(() => { map.invalidateSize(); renderMarkers(); }, 150);
   }
 }
 
@@ -849,11 +823,15 @@ if (dz) {
 // === STARTUP ===
 checkResume();
 
-// Register service worker for PWA + offline
+// Unregister any old service worker (was causing cache issues)
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js')
-    .then(r => console.log('SW registered:', r.scope))
-    .catch(e => console.warn('SW error:', e));
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(r => r.unregister());
+  });
+  // Also clear old caches
+  if ('caches' in window) {
+    caches.keys().then(ks => ks.forEach(k => caches.delete(k)));
+  }
 }
 </script>
 </body>
