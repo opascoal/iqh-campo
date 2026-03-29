@@ -128,6 +128,15 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .export-bar button{width:100%;padding:12px;font-size:.95rem;font-weight:600;border-radius:10px;cursor:pointer;border:none}
 .btn-export{background:var(--accent);color:#fff}
 .btn-export:active{opacity:.85}
+
+/* === FOTO === */
+.foto-area{margin:12px 0}
+.foto-btn{width:100%;padding:10px;font-size:.9rem;background:var(--bg);color:var(--primary);border:2px dashed var(--border);border-radius:10px;cursor:pointer;font-weight:600}
+.foto-btn:active{border-color:var(--accent);background:#e8f4fd}
+.foto-preview{position:relative;margin-bottom:8px;border-radius:10px;overflow:hidden;background:#000;text-align:center}
+.foto-preview img{max-width:100%;max-height:200px;display:block;margin:0 auto}
+.foto-remove{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.foto-icon{font-size:.7rem;margin-left:4px;opacity:.6}
 </style>
 </head>
 <body>
@@ -178,7 +187,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
       </div>
       <div id="list-items" class="list"></div>
       <div class="export-bar" id="export-bar" style="display:none">
-        <button class="btn-export" onclick="exportReadings()">Exportar Leituras (CSV)</button>
+        <button class="btn-export" onclick="exportReadings()">Exportar Leituras</button>
       </div>
     </div>
 
@@ -234,6 +243,14 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
       <input type="number" id="m-input" inputmode="decimal" step="0.1" min="0" placeholder="0.0" oninput="validateInput()">
     </div>
     <div id="m-warn" class="wb"></div>
+    <div class="foto-area">
+      <input type="file" id="m-foto-input" accept="image/*" capture="environment" style="display:none" onchange="onFotoSelected(this)">
+      <div id="m-foto-preview" class="foto-preview" style="display:none">
+        <img id="m-foto-img" src="" alt="Foto">
+        <button class="foto-remove" onclick="removeFoto()" title="Remover foto">&times;</button>
+      </div>
+      <button class="foto-btn" id="m-foto-btn" onclick="document.getElementById('m-foto-input').click()">&#128247; Tirar Foto</button>
+    </div>
     <button class="bs" onclick="saveReading()">Guardar Leitura</button>
     <button class="bf" onclick="saveFechado()">&#128274; Marcar como Fechado</button>
   </div>
@@ -244,6 +261,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 
 <!-- LEAFLET (CDN, optional) -->
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- JSZIP (for photo export) -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 /* ============================
    IQ CAMPO — STANDALONE APP
@@ -438,8 +457,9 @@ function renderList() {
     else if (hasServer && m.existing_status !== 'Fechado') rv = 'Leitura: ' + Number(m.existing_reading).toFixed(1) + ' m3';
     else if (hasServer) rv = 'Fechado';
 
+    const hasFoto = r && r.foto;
     html += '<div class="mc ' + cls + '" onclick="openModal(' + m.snno + ')">' +
-      '<div class="top"><span class="sn">' + m.snno + '</span><span class="zm">' + esc(m.zmc_nome||'') + '</span></div>' +
+      '<div class="top"><span class="sn">' + m.snno + (hasFoto ? '<span class="foto-icon">📷</span>' : '') + '</span><span class="zm">' + esc(m.zmc_nome||'') + '</span></div>' +
       '<div class="mo">' + esc(m.morada||'Sem morada') + '</div>' +
       '<div class="rf">' + ref + ' &middot; Serie: ' + esc(m.serie_contador||'N/D') + '</div>' +
       (rv ? '<div class="rv">' + rv + '</div>' : '') +
@@ -482,6 +502,45 @@ function updateExportBar() {
   bar.style.display = count > 0 ? 'block' : 'none';
 }
 
+// === FOTO ===
+let pendingFoto = null; // base64 da foto no modal actual
+
+function onFotoSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    resizeFoto(e.target.result, 800, 0.7, function(base64) {
+      pendingFoto = base64;
+      document.getElementById('m-foto-img').src = base64;
+      document.getElementById('m-foto-preview').style.display = 'block';
+      document.getElementById('m-foto-btn').textContent = '📷 Substituir Foto';
+    });
+  };
+  reader.readAsDataURL(file);
+  input.value = ''; // reset para permitir re-seleccionar
+}
+
+function resizeFoto(dataUrl, maxWidth, quality, callback) {
+  var img = new Image();
+  img.onload = function() {
+    var w = img.width, h = img.height;
+    if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+    var canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    callback(canvas.toDataURL('image/jpeg', quality));
+  };
+  img.src = dataUrl;
+}
+
+function removeFoto() {
+  pendingFoto = null;
+  document.getElementById('m-foto-preview').style.display = 'none';
+  document.getElementById('m-foto-img').src = '';
+  document.getElementById('m-foto-btn').textContent = '📷 Tirar Foto';
+}
+
 // === MODAL ===
 function openModal(snno) {
   const m = meters.find(x => x.snno === snno);
@@ -496,6 +555,18 @@ function openModal(snno) {
   const existing = readings[snno];
   inp.value = existing && !existing.fechado ? existing.leitura_m3 : '';
   document.getElementById('m-warn').className = 'wb';
+  // Load existing photo
+  if (existing && existing.foto) {
+    pendingFoto = existing.foto;
+    document.getElementById('m-foto-img').src = existing.foto;
+    document.getElementById('m-foto-preview').style.display = 'block';
+    document.getElementById('m-foto-btn').textContent = '📷 Substituir Foto';
+  } else {
+    pendingFoto = null;
+    document.getElementById('m-foto-preview').style.display = 'none';
+    document.getElementById('m-foto-img').src = '';
+    document.getElementById('m-foto-btn').textContent = '📷 Tirar Foto';
+  }
   document.getElementById('r-modal').classList.add('vis');
   setTimeout(() => inp.focus(), 200);
 }
@@ -540,11 +611,12 @@ function saveReading() {
     timestamp: new Date().toISOString(),
     fechado: false,
     disc: diff != null && (diff < -10 || diff > 50),
+    foto: pendingFoto || null,
   };
   saveState();
   closeModal();
   renderAll();
-  toast('Leitura guardada');
+  toast('Leitura guardada' + (pendingFoto ? ' (com foto)' : ''));
 }
 
 function saveFechado() {
@@ -558,6 +630,7 @@ function saveFechado() {
     timestamp: new Date().toISOString(),
     fechado: true,
     disc: false,
+    foto: pendingFoto || null,
   };
   saveState();
   closeModal();
@@ -566,26 +639,70 @@ function saveFechado() {
 }
 
 // === EXPORT ===
-function exportReadings() {
+function buildCSV() {
   const rList = Object.values(readings);
-  if (!rList.length) { toast('Sem leituras para exportar'); return; }
-  // CSV format compatible with IQHAI2O /api/leituras/import
   let csv = 'SNNO;Serie;Leitura_m3;Data_Leitura\n';
   rList.forEach(r => {
     const leitura = r.fechado ? 'Fechado' : (r.leitura_m3 != null ? r.leitura_m3 : '');
     csv += r.snno + ';' + (r.serie_contador || '') + ';' + leitura + ';' + r.data_leitura + '\n';
   });
-  const blob = new Blob(['\uFEFF' + csv], {type: 'text/csv;charset=utf-8'});
+  return '\uFEFF' + csv;
+}
+
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
-  const safeName = (campanha || 'leituras').replace(/[^a-zA-Z0-9_-]/g, '_');
-  a.download = 'leituras_' + safeName + '_' + new Date().toISOString().slice(0,10) + '.csv';
-  document.body.appendChild(a);
-  a.click();
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  toast(rList.length + ' leitura(s) exportada(s)');
+}
+
+function base64ToBlob(b64) {
+  // strip data:image/jpeg;base64, prefix
+  const parts = b64.split(',');
+  const mime = parts[0].match(/:(.*?);/)[1];
+  const raw = atob(parts[1]);
+  const arr = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return new Blob([arr], {type: mime});
+}
+
+async function exportReadings() {
+  const rList = Object.values(readings);
+  if (!rList.length) { toast('Sem leituras para exportar'); return; }
+
+  const safeName = (campanha || 'leituras').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const dateStr = new Date().toISOString().slice(0,10);
+  const csv = buildCSV();
+  const fotos = rList.filter(r => r.foto);
+
+  // If no photos or JSZip unavailable, export plain CSV
+  if (!fotos.length || typeof JSZip === 'undefined') {
+    downloadBlob(new Blob([csv], {type: 'text/csv;charset=utf-8'}), 'leituras_' + safeName + '_' + dateStr + '.csv');
+    toast(rList.length + ' leitura(s) exportada(s) (CSV)');
+    return;
+  }
+
+  // Export ZIP with CSV + photos
+  toast('A gerar ZIP com ' + fotos.length + ' foto(s)...');
+  try {
+    var zip = new JSZip();
+    zip.file('leituras.csv', csv);
+    var fotosFolder = zip.folder('fotos');
+    fotos.forEach(r => {
+      const blob = base64ToBlob(r.foto);
+      fotosFolder.file(r.snno + '.jpg', blob);
+    });
+    const content = await zip.generateAsync({type: 'blob', compression: 'DEFLATE', compressionOptions: {level: 6}});
+    downloadBlob(content, 'leituras_' + safeName + '_' + dateStr + '.zip');
+    toast(rList.length + ' leitura(s) + ' + fotos.length + ' foto(s) exportada(s)');
+  } catch(e) {
+    console.error('ZIP error:', e);
+    // Fallback to CSV only
+    downloadBlob(new Blob([csv], {type: 'text/csv;charset=utf-8'}), 'leituras_' + safeName + '_' + dateStr + '.csv');
+    toast('Exportado CSV (erro ao gerar ZIP)');
+  }
 }
 
 // === MAP ===
