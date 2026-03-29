@@ -159,6 +159,23 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .obs-area{margin:8px 0}
 .obs-area textarea{width:100%;padding:8px;font-size:.85rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);resize:none;font-family:inherit;min-height:40px}
 
+/* === DASHBOARD === */
+.dash-kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+.dash-kpi{background:var(--card);border-radius:10px;padding:10px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.dash-kpi .kv{font-size:1.6rem;font-weight:700;color:var(--primary)}
+.dash-kpi .kl{font-size:.7rem;color:var(--muted);margin-top:2px}
+.dash-kpi.accent .kv{color:var(--accent)}
+.dash-kpi.warn .kv{color:var(--warning)}
+.dash-kpi.ok .kv{color:var(--success)}
+.dash-chart{background:var(--card);border-radius:10px;padding:10px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.dash-chart h3{font-size:.85rem;font-weight:600;margin:0 0 8px;color:var(--primary)}
+.dash-section{margin-bottom:12px}
+.dash-section h3{font-size:.85rem;font-weight:600;margin:0 0 8px;color:var(--primary)}
+.dash-timeline{font-size:.8rem;color:var(--muted)}
+.dash-timeline .tl-row{display:flex;gap:8px;padding:3px 0;border-bottom:1px solid var(--border)}
+.dash-timeline .tl-time{width:50px;font-weight:600;color:var(--text)}
+.dash-timeline .tl-snno{width:70px;font-weight:600;color:var(--primary)}
+
 /* === CUSTOM NUMPAD === */
 .numpad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0}
 .numpad button{height:52px;font-size:1.4rem;font-weight:700;border:none;border-radius:10px;background:var(--bg);color:var(--text);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .1s}
@@ -250,7 +267,30 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 
     <!-- PROGRESS VIEW -->
     <div id="v-prog" class="view">
-      <div id="prog-cnt" class="prog"></div>
+      <div id="prog-cnt" class="prog">
+        <!-- KPIs -->
+        <div id="dash-kpis" class="dash-kpis"></div>
+        <!-- Hourly chart -->
+        <div class="dash-chart">
+          <h3>Leituras por hora</h3>
+          <canvas id="chart-hourly" height="140"></canvas>
+        </div>
+        <!-- Cumulative chart -->
+        <div class="dash-chart">
+          <h3>Progresso acumulado</h3>
+          <canvas id="chart-cumulative" height="140"></canvas>
+        </div>
+        <!-- ZMC progress -->
+        <div class="dash-chart">
+          <h3>Progresso por ZMC</h3>
+          <canvas id="chart-zmc" height="180"></canvas>
+        </div>
+        <!-- Recent readings -->
+        <div class="dash-section">
+          <h3>Ultimas leituras</h3>
+          <div id="dash-timeline" class="dash-timeline"></div>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -341,6 +381,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- JSZIP (for photo export) -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<!-- CHART.JS (for progress dashboard) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script>
 /* ============================
    IQ CAMPO — STANDALONE APP
@@ -666,32 +708,173 @@ function renderList() {
   c.innerHTML = html;
 }
 
+// Chart instances (destroy before re-create)
+let chartHourly = null, chartCumulative = null, chartZmc = null;
+
 function renderProgress() {
-  const c = document.getElementById('prog-cnt');
   const total = meters.length;
+  const rList = Object.values(readings).filter(r => r.timestamp);
   const readCount = meters.filter(m => readings[m.snno] || m.existing_reading != null).length;
   const pending = total - readCount;
   const pct = total > 0 ? Math.round(readCount / total * 100) : 0;
 
-  const zm = {};
+  // Sort readings by timestamp
+  const sorted = rList.slice().sort((a,b) => (a.timestamp||'').localeCompare(b.timestamp||''));
+
+  // === KPIs ===
+  // Time stats
+  let firstTime = null, lastTime = null, totalMinutes = 0;
+  const intervals = [];
+  if (sorted.length > 0) {
+    firstTime = new Date(sorted[0].timestamp);
+    lastTime = new Date(sorted[sorted.length - 1].timestamp);
+    totalMinutes = (lastTime - firstTime) / 60000;
+    for (let i = 1; i < sorted.length; i++) {
+      intervals.push((new Date(sorted[i].timestamp) - new Date(sorted[i-1].timestamp)) / 60000);
+    }
+  }
+  const ratePerHour = totalMinutes > 5 ? Math.round(rList.length / (totalMinutes / 60)) : 0;
+  const avgMinutes = intervals.length > 0 ? (intervals.reduce((a,b) => a+b, 0) / intervals.length) : 0;
+  const withFoto = rList.filter(r => r.foto).length;
+  const fechados = rList.filter(r => r.fechado).length;
+
+  // Fastest hour
+  const hourBuckets = {};
+  sorted.forEach(r => {
+    const h = new Date(r.timestamp).getHours();
+    hourBuckets[h] = (hourBuckets[h] || 0) + 1;
+  });
+  let bestHour = '-', bestCount = 0;
+  Object.entries(hourBuckets).forEach(([h, c]) => {
+    if (c > bestCount) { bestCount = c; bestHour = h + ':00'; }
+  });
+
+  document.getElementById('dash-kpis').innerHTML =
+    '<div class="dash-kpi ok"><div class="kv">' + pct + '%</div><div class="kl">' + readCount + '/' + total + ' lidos</div></div>' +
+    '<div class="dash-kpi accent"><div class="kv">' + ratePerHour + '</div><div class="kl">leituras/hora</div></div>' +
+    '<div class="dash-kpi"><div class="kv">' + (avgMinutes > 0 ? avgMinutes.toFixed(1) + 'm' : '-') + '</div><div class="kl">media entre leituras</div></div>' +
+    '<div class="dash-kpi warn"><div class="kv">' + bestHour + '</div><div class="kl">hora mais produtiva (' + bestCount + ')</div></div>' +
+    '<div class="dash-kpi"><div class="kv">' + (firstTime ? firstTime.toLocaleTimeString('pt',{hour:'2-digit',minute:'2-digit'}) : '-') + '</div><div class="kl">inicio</div></div>' +
+    '<div class="dash-kpi"><div class="kv">' + (lastTime ? lastTime.toLocaleTimeString('pt',{hour:'2-digit',minute:'2-digit'}) : '-') + '</div><div class="kl">ultima leitura</div></div>' +
+    '<div class="dash-kpi"><div class="kv">' + withFoto + '</div><div class="kl">com foto</div></div>' +
+    '<div class="dash-kpi"><div class="kv">' + fechados + '</div><div class="kl">fechados/sem acesso</div></div>';
+
+  // === CHARTS (only if Chart.js loaded) ===
+  if (typeof Chart === 'undefined') return;
+
+  // Hourly bar chart
+  const hours = Array.from({length:24}, (_,i) => i);
+  const hourData = hours.map(h => hourBuckets[h] || 0);
+  if (chartHourly) chartHourly.destroy();
+  chartHourly = new Chart(document.getElementById('chart-hourly'), {
+    type: 'bar',
+    data: {
+      labels: hours.map(h => h + 'h'),
+      datasets: [{
+        data: hourData,
+        backgroundColor: hourData.map((v,i) => i === parseInt(bestHour) ? '#f39c12' : '#3498db'),
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      plugins: {legend:{display:false}},
+      scales: {x:{grid:{display:false}}, y:{beginAtZero:true, ticks:{stepSize:1}}},
+      responsive: true, maintainAspectRatio: false,
+    }
+  });
+
+  // Cumulative line chart
+  if (sorted.length > 1) {
+    const cumLabels = [], cumData = [];
+    sorted.forEach((r, i) => {
+      const t = new Date(r.timestamp);
+      cumLabels.push(t.toLocaleTimeString('pt', {hour:'2-digit', minute:'2-digit'}));
+      cumData.push(i + 1);
+    });
+    // Add projection line to total
+    if (readCount < total && totalMinutes > 5) {
+      const rate = rList.length / totalMinutes; // per minute
+      const remaining = total - readCount;
+      const etaMinutes = remaining / rate;
+      const etaTime = new Date(lastTime.getTime() + etaMinutes * 60000);
+      cumLabels.push(etaTime.toLocaleTimeString('pt', {hour:'2-digit', minute:'2-digit'}) + ' (est.)');
+      cumData.push(total);
+    }
+    if (chartCumulative) chartCumulative.destroy();
+    chartCumulative = new Chart(document.getElementById('chart-cumulative'), {
+      type: 'line',
+      data: {
+        labels: cumLabels,
+        datasets: [{
+          data: cumData,
+          borderColor: '#27ae60', backgroundColor: 'rgba(39,174,96,.1)',
+          fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2,
+        },{
+          data: cumLabels.map(() => total),
+          borderColor: '#e74c3c', borderDash: [5,5], borderWidth: 1,
+          pointRadius: 0, fill: false,
+        }]
+      },
+      options: {
+        plugins: {legend:{display:false}},
+        scales: {x:{display:true, ticks:{maxTicksLimit:6, font:{size:9}}}, y:{beginAtZero:true}},
+        responsive: true, maintainAspectRatio: false,
+      }
+    });
+  }
+
+  // ZMC horizontal bar chart
+  const zmcData = {};
   meters.forEach(m => {
     const z = m.zmc_nome || 'Sem ZMC';
-    if (!zm[z]) zm[z] = {t:0, r:0};
-    zm[z].t++;
-    if (readings[m.snno] || m.existing_reading != null) zm[z].r++;
+    if (!zmcData[z]) zmcData[z] = {t:0, r:0};
+    zmcData[z].t++;
+    if (readings[m.snno] || m.existing_reading != null) zmcData[z].r++;
+  });
+  const zmcEntries = Object.entries(zmcData).sort(([,a],[,b]) => {
+    const ap = a.t > 0 ? a.r/a.t : 0, bp = b.t > 0 ? b.r/b.t : 0;
+    return ap - bp; // least complete first
+  });
+  if (chartZmc) chartZmc.destroy();
+  const zmcCanvas = document.getElementById('chart-zmc');
+  zmcCanvas.height = Math.max(120, zmcEntries.length * 28);
+  chartZmc = new Chart(zmcCanvas, {
+    type: 'bar',
+    data: {
+      labels: zmcEntries.map(([z]) => z),
+      datasets: [
+        { label: 'Lidos', data: zmcEntries.map(([,d]) => d.r), backgroundColor: '#27ae60', borderRadius: 3 },
+        { label: 'Pendentes', data: zmcEntries.map(([,d]) => d.t - d.r), backgroundColor: '#dce4ec', borderRadius: 3 },
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: {legend:{display:true, position:'top', labels:{boxWidth:12, font:{size:10}}}},
+      scales: {x:{stacked:true, grid:{display:false}}, y:{stacked:true, ticks:{font:{size:10}}}},
+      responsive: true, maintainAspectRatio: false,
+    }
   });
 
-  let zhtml = '';
-  Object.entries(zm).sort(([a],[b]) => a.localeCompare(b)).forEach(([z, d]) => {
-    const zp = d.t > 0 ? Math.round(d.r / d.t * 100) : 0;
-    zhtml += '<div class="zmc-item"><div class="nm">' + esc(z) + '</div>' +
-      '<div class="ct">' + d.r + '/' + d.t + ' (' + zp + '%)</div>' +
-      '<div class="bar-wrap" style="height:6px;margin-top:6px"><div class="bar-fill" style="width:' + zp + '%"></div></div></div>';
-  });
-
-  c.innerHTML = '<div class="prog-global"><div class="big">' + pct + '%</div>' +
-    '<div class="lbl">' + readCount + ' de ' + total + ' contadores lidos &middot; ' + pending + ' pendentes</div>' +
-    '<div class="bar-wrap"><div class="bar-fill" style="width:' + pct + '%"></div></div></div>' + zhtml;
+  // === TIMELINE (last 15 readings) ===
+  const recent = sorted.slice(-15).reverse();
+  const tlEl = document.getElementById('dash-timeline');
+  if (!recent.length) {
+    tlEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:8px">Sem leituras registadas</div>';
+  } else {
+    tlEl.innerHTML = recent.map(r => {
+      const t = new Date(r.timestamp);
+      const time = t.toLocaleTimeString('pt', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      const m = meters.find(x => x.snno === r.snno);
+      const val = r.fechado ? (r.motivo || 'Fechado') : (r.leitura_m3 + ' m3');
+      return '<div class="tl-row">' +
+        '<span class="tl-time">' + time + '</span>' +
+        '<span class="tl-snno">' + r.snno + '</span>' +
+        '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m ? m.morada||'' : '') + '</span>' +
+        '<span style="font-weight:600;white-space:nowrap;margin-left:4px">' + val + '</span>' +
+        (r.foto ? ' <span class="foto-icon">📷</span>' : '') +
+        '</div>';
+    }).join('');
+  }
 }
 
 function updateExportBar() {
