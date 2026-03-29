@@ -152,6 +152,12 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .foto-preview img{max-width:100%;max-height:200px;display:block;margin:0 auto}
 .foto-remove{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .foto-icon{font-size:.7rem;margin-left:4px;opacity:.6}
+.note-icon{font-size:.7rem;margin-left:2px;opacity:.6}
+.dist{font-size:.75rem;color:var(--accent);font-weight:600}
+
+/* === OBSERVACOES === */
+.obs-area{margin:8px 0}
+.obs-area textarea{width:100%;padding:10px;font-size:.85rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);resize:none;font-family:inherit;min-height:50px}
 </style>
 </head>
 <body>
@@ -278,6 +284,10 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
       </div>
       <button class="foto-btn" id="m-foto-btn" onclick="document.getElementById('m-foto-input').click()">&#128247; Tirar Foto</button>
     </div>
+    <div class="obs-area">
+      <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Observacoes</label>
+      <textarea id="m-obs" placeholder="Notas sobre este local (opcional)" maxlength="500" rows="2"></textarea>
+    </div>
     <button class="bs" onclick="saveReading()">Guardar Leitura</button>
     <button class="bf" onclick="saveFechado()">&#128274; Marcar como Fechado</button>
   </div>
@@ -310,6 +320,43 @@ let map = null, userMk = null, userCi = null, mMarkers = {}, lastPos = null, wat
 
 const STORAGE_KEY = 'iqh_campo';
 const OPERADOR_KEY = 'iqh_campo_operador';
+const NOTAS_KEY = 'iqh_campo_notas';
+
+// === NOTAS (persist across campaigns) ===
+let notas = {}; // snno -> string
+
+function loadNotas() {
+  try { notas = JSON.parse(localStorage.getItem(NOTAS_KEY)) || {}; } catch(e) { notas = {}; }
+}
+
+function saveNota(snno, text) {
+  text = (text || '').trim();
+  if (text) notas[snno] = text;
+  else delete notas[snno];
+  try { localStorage.setItem(NOTAS_KEY, JSON.stringify(notas)); } catch(e) {}
+}
+
+// === DISTANCE ===
+function haversine(lat1, lon1, lat2, lon2) {
+  var R = 6371000; // metres
+  var dLat = (lat2 - lat1) * Math.PI / 180;
+  var dLon = (lon2 - lon1) * Math.PI / 180;
+  var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLon/2) * Math.sin(dLon/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getDistance(m) {
+  if (!lastPos || !m.lat || !m.lon) return null;
+  return haversine(lastPos[0], lastPos[1], m.lat, m.lon);
+}
+
+function formatDist(d) {
+  if (d == null) return '';
+  if (d < 1000) return '~' + Math.round(d) + 'm';
+  return '~' + (d / 1000).toFixed(1) + 'km';
+}
 
 // === AUTH ===
 function doAuth() {
@@ -479,13 +526,20 @@ function getFiltered() {
       (m.serie_contador||'').toLowerCase().includes(q)
     );
   }
-  // Sort: pending first
+  // Sort: pending first, then by GPS proximity (if available)
   list.sort((a,b) => {
     const ar = readings[a.snno], br = readings[b.snno];
     const aHas = ar || (a.existing_reading != null);
     const bHas = br || (b.existing_reading != null);
     if (aHas && !bHas) return 1;
     if (!aHas && bHas) return -1;
+    // Within same group, sort by distance if GPS available
+    if (lastPos) {
+      const da = getDistance(a), db = getDistance(b);
+      if (da != null && db != null) return da - db;
+      if (da != null) return -1;
+      if (db != null) return 1;
+    }
     return 0;
   });
   return list;
@@ -518,10 +572,17 @@ function renderList() {
     else if (hasServer) rv = 'Fechado';
 
     const hasFoto = r && r.foto;
+    const hasNota = !!notas[m.snno];
+    const dist = getDistance(m);
+    const distTxt = formatDist(dist);
+    const icons = (hasFoto ? '<span class="foto-icon">📷</span>' : '') + (hasNota ? '<span class="note-icon">📝</span>' : '');
     html += '<div class="mc ' + cls + '" onclick="openModal(' + m.snno + ')">' +
-      '<div class="top"><span class="sn">' + m.snno + (hasFoto ? '<span class="foto-icon">📷</span>' : '') + '</span><span class="zm">' + esc(m.zmc_nome||'') + '</span></div>' +
+      '<div class="top"><span class="sn">' + m.snno + icons + '</span>' +
+      (distTxt ? '<span class="dist">' + distTxt + '</span>' : '') +
+      '<span class="zm">' + esc(m.zmc_nome||'') + '</span></div>' +
       '<div class="mo">' + esc(m.morada||'Sem morada') + '</div>' +
       '<div class="rf">' + ref + ' &middot; Serie: ' + esc(m.serie_contador||'N/D') + '</div>' +
+      (hasNota ? '<div class="rf" style="font-style:italic">' + esc(notas[m.snno]) + '</div>' : '') +
       (rv ? '<div class="rv">' + rv + '</div>' : '') +
       '</div>';
   });
@@ -627,6 +688,8 @@ function openModal(snno) {
     document.getElementById('m-foto-img').src = '';
     document.getElementById('m-foto-btn').textContent = '📷 Tirar Foto';
   }
+  // Load existing note
+  document.getElementById('m-obs').value = notas[snno] || '';
   document.getElementById('r-modal').classList.add('vis');
   // Scroll the input into view when keyboard opens, don't auto-focus
   inp.addEventListener('focus', function onFocus() {
@@ -680,6 +743,7 @@ function saveReading() {
     foto: pendingFoto || null,
     operador: operador || null,
   };
+  saveNota(modalSnno, document.getElementById('m-obs').value);
   saveState();
   closeModal();
   renderAll();
@@ -698,7 +762,9 @@ function saveFechado() {
     fechado: true,
     disc: false,
     foto: pendingFoto || null,
+    operador: operador || null,
   };
+  saveNota(modalSnno, document.getElementById('m-obs').value);
   saveState();
   closeModal();
   renderAll();
@@ -708,10 +774,11 @@ function saveFechado() {
 // === EXPORT ===
 function buildCSV() {
   const rList = Object.values(readings);
-  let csv = 'SNNO;Serie;Leitura_m3;Data_Leitura;Operador\n';
+  let csv = 'SNNO;Serie;Leitura_m3;Data_Leitura;Operador;Observacoes\n';
   rList.forEach(r => {
     const leitura = r.fechado ? 'Fechado' : (r.leitura_m3 != null ? r.leitura_m3 : '');
-    csv += r.snno + ';' + (r.serie_contador || '') + ';' + leitura + ';' + r.data_leitura + ';' + (r.operador || operador || '') + '\n';
+    const nota = (notas[r.snno] || '').replace(/;/g, ',').replace(/\n/g, ' ');
+    csv += r.snno + ';' + (r.serie_contador || '') + ';' + leitura + ';' + r.data_leitura + ';' + (r.operador || operador || '') + ';' + nota + '\n';
   });
   return '\uFEFF' + csv;
 }
@@ -832,6 +899,7 @@ function startGPS(showErrors) {
       placeGPSDot(lastPos, lastAcc);
       if (isFirst) {
         toast('GPS activo');
+        if (curView === 'list') renderList(); // reorder by proximity
         if (map) map.setView(lastPos, 17);
       }
     },
@@ -1006,6 +1074,7 @@ if (dz) {
 
 // === STARTUP ===
 (function initAuth() {
+  loadNotas();
   const saved = localStorage.getItem(OPERADOR_KEY);
   if (saved) {
     operador = saved;
