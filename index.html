@@ -671,7 +671,16 @@ function openModal(snno) {
   document.getElementById('m-morada').textContent = m.morada || 'Sem morada';
   document.getElementById('m-serie').textContent = 'Serie: ' + (m.serie_contador || 'N/D');
   document.getElementById('m-zmc').textContent = 'ZMC: ' + (m.zmc_nome || 'N/D');
-  document.getElementById('m-ref').textContent = m.reference_m3 != null ? Number(m.reference_m3).toFixed(1) + ' m3' : 'N/D';
+  // Show reference + estimated current reading
+  var refBlock = document.getElementById('m-ref');
+  if (m.reference_m3 != null) {
+    var est = estimateReading(m);
+    refBlock.innerHTML = Math.floor(m.reference_m3) + ' m3' +
+      (est.estimated != null ? '<div style="font-size:.75rem;color:var(--muted);margin-top:2px">Estimativa actual: ~' + est.estimated + ' m3' +
+       (m.consumo_medio_diario ? ' (' + Number(m.consumo_medio_diario).toFixed(2) + ' m3/dia)' : '') + '</div>' : '');
+  } else {
+    refBlock.textContent = 'N/D';
+  }
   const inp = document.getElementById('m-input');
   const existing = readings[snno];
   inp.value = existing && !existing.fechado ? existing.leitura_m3 : '';
@@ -703,6 +712,21 @@ function closeModal() {
   modalSnno = null;
 }
 
+// Estimate expected reading at current date
+function estimateReading(m) {
+  if (m.reference_m3 == null) return { estimated: null, days: 0, daily: 0 };
+  var ref = Math.floor(m.reference_m3);
+  var daily = m.consumo_medio_diario || 0;
+  var days = 0;
+  if (m.data_referencia) {
+    var refDate = new Date(m.data_referencia);
+    var today = new Date();
+    days = Math.max(0, Math.round((today - refDate) / 86400000));
+  }
+  var estimated = ref + Math.round(daily * days);
+  return { estimated: estimated, days: days, daily: daily };
+}
+
 function validateInput() {
   const inp = document.getElementById('m-input');
   const warn = document.getElementById('m-warn');
@@ -711,16 +735,45 @@ function validateInput() {
   const val = parseInt(inp.value.replace(/[^0-9]/g, ''), 10);
   const ref = m.reference_m3;
   if (isNaN(val) || ref == null) { warn.className = 'wb'; return; }
-  const diff = val - Math.floor(ref);
-  if (diff < -10) {
-    warn.textContent = 'Leitura inferior a referencia em ' + Math.abs(diff) + ' m3. Verifique o valor.';
+
+  var refFloor = Math.floor(ref);
+  var est = estimateReading(m);
+  var daily = est.daily;
+
+  // Rule 1: leitura manual NUNCA pode ser inferior à referência
+  if (val < refFloor) {
+    warn.textContent = 'ERRO: Leitura (' + val + ') inferior a referencia (' + refFloor + '). O contador nao anda para tras.';
     warn.className = 'wb dng vis';
-  } else if (diff > 50) {
-    warn.textContent = 'Diferenca de +' + diff + ' m3 em relacao a referencia. Confirme o valor.';
-    warn.className = 'wb vis';
-  } else {
-    warn.className = 'wb';
+    return;
   }
+
+  // Rule 2: validação inteligente com consumo médio
+  if (daily > 0 && est.estimated != null) {
+    // Limite superior: estimativa + margem de 50% + 10 m3 minimo
+    var margem = Math.max(10, Math.round(daily * est.days * 0.5));
+    var limSup = est.estimated + margem;
+    if (val > limSup) {
+      warn.textContent = 'Leitura (' + val + ') muito acima do esperado (~' + est.estimated + '). Diferenca: +' + (val - est.estimated) + ' m3. Confirme o valor.';
+      warn.className = 'wb vis';
+      return;
+    }
+  } else {
+    // Sem consumo médio: fallback fixo +50
+    if (val - refFloor > 50) {
+      warn.textContent = 'Diferenca de +' + (val - refFloor) + ' m3 em relacao a referencia. Confirme o valor.';
+      warn.className = 'wb vis';
+      return;
+    }
+  }
+
+  // Substituído recentemente — aviso informativo
+  if (m.substituido_recentemente) {
+    warn.textContent = 'Contador substituido recentemente. Verifique que o numero de serie corresponde.';
+    warn.className = 'wb vis';
+    return;
+  }
+
+  warn.className = 'wb';
 }
 
 function saveReading() {
