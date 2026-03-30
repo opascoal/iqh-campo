@@ -837,7 +837,8 @@ function renderProgress() {
   });
   if (chartZmc) chartZmc.destroy();
   const zmcCanvas = document.getElementById('chart-zmc');
-  zmcCanvas.height = Math.max(120, zmcEntries.length * 28);
+  const zmcH = Math.min(400, Math.max(120, zmcEntries.length * 28));
+  zmcCanvas.parentElement.style.height = zmcH + 'px';
   chartZmc = new Chart(zmcCanvas, {
     type: 'bar',
     data: {
