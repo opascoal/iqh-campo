@@ -1362,6 +1362,7 @@ function switchV(v) {
     initMap();
     if (map) setTimeout(() => { map.invalidateSize(); renderMarkers(); }, 150);
   }
+  if (v === 'progress') renderProgress();
 }
 
 // === HELPERS ===
