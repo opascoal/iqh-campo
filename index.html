@@ -508,13 +508,109 @@ function filterIntegerInput(el) {
   el.value = el.value.replace(/[^0-9]/g, '');
 }
 
+// === PERSISTENCE (IndexedDB for photos) ===
+const IDB_NAME = 'iqh_campo_fotos';
+const IDB_STORE = 'fotos';
+const IDB_VERSION = 1;
+let _idbPromise = null;
+
+function idbOpen() {
+  if (_idbPromise) return _idbPromise;
+  _idbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return _idbPromise;
+}
+
+function fotoKey(snno) { return (campanha || '') + '|' + snno; }
+
+async function savePhoto(snno, blob) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(blob, fotoKey(snno));
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getPhoto(snno) {
+  const db = await idbOpen();
+  return new Promise((resolve) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(fotoKey(snno));
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => resolve(null);
+  });
+}
+
+async function deletePhoto(snno) {
+  const db = await idbOpen();
+  return new Promise((resolve) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(fotoKey(snno));
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => resolve(false);
+  });
+}
+
+async function clearAllPhotos() {
+  try {
+    const db = await idbOpen();
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).clear();
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    });
+  } catch(e) { return false; }
+}
+
+function base64ToBlobSync(b64) {
+  const parts = b64.split(',');
+  const mime = parts[0].match(/:(.*?);/)[1];
+  const raw = atob(parts[1]);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return new Blob([arr], {type: mime});
+}
+
+// Migração única: mover fotos inline (base64 em readings[snno].foto) para IndexedDB
+async function migrateInlinePhotosToIdb() {
+  let migrated = 0;
+  for (const snno of Object.keys(readings)) {
+    const r = readings[snno];
+    if (r && typeof r.foto === 'string' && r.foto.startsWith('data:')) {
+      try {
+        await savePhoto(snno, base64ToBlobSync(r.foto));
+        r.hasFoto = true;
+        delete r.foto;
+        migrated++;
+      } catch(e) { console.warn('migrate failed for', snno, e); }
+    }
+  }
+  if (migrated > 0) {
+    saveState();
+    console.log('[migrate] moved', migrated, 'photos to IndexedDB');
+  }
+  return migrated;
+}
+
 // === PERSISTENCE (localStorage) ===
 function saveState() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       campanha, meters, readings, ts: Date.now()
     }));
-  } catch(e) { console.warn('localStorage full:', e); }
+    return true;
+  } catch(e) {
+    console.error('saveState falhou:', e);
+    toast('⚠️ ERRO AO GRAVAR. Avise o gestor antes de continuar.');
+    return false;
+  }
 }
 
 function loadState() {
@@ -533,6 +629,7 @@ function loadState() {
 function clearState() {
   localStorage.removeItem(STORAGE_KEY);
   campanha = null; meters = []; readings = {};
+  clearAllPhotos();
 }
 
 // === FILE LOADING ===
@@ -562,6 +659,7 @@ function loadFile(input) {
         } catch(ex) {}
       }
       saveState();
+      migrateInlinePhotosToIdb();
       startCampaign();
     } catch(ex) {
       toast('Erro ao ler ficheiro: ' + ex.message);
@@ -603,6 +701,7 @@ function resetApp() {
 // === INIT ===
 function checkResume() {
   if (loadState() && meters.length > 0) {
+    migrateInlinePhotosToIdb();
     const rb = document.getElementById('resume-block');
     const btn = document.getElementById('resume-btn');
     const nRead = Object.keys(readings).length;
@@ -690,7 +789,7 @@ function renderList() {
     else if (hasServer && m.existing_status !== 'Fechado') rv = 'Leitura: ' + Number(m.existing_reading).toFixed(1) + ' m3';
     else if (hasServer) rv = 'Fechado';
 
-    const hasFoto = r && r.foto;
+    const hasFoto = r && r.hasFoto;
     const hasNota = !!notas[m.snno];
     const dist = getDistance(m);
     const distTxt = formatDist(dist);
@@ -735,7 +834,7 @@ function renderProgress() {
   }
   const ratePerHour = totalMinutes > 5 ? Math.round(rList.length / (totalMinutes / 60)) : 0;
   const avgMinutes = intervals.length > 0 ? (intervals.reduce((a,b) => a+b, 0) / intervals.length) : 0;
-  const withFoto = rList.filter(r => r.foto).length;
+  const withFoto = rList.filter(r => r.hasFoto).length;
   const fechados = rList.filter(r => r.fechado).length;
 
   // Fastest hour
@@ -872,7 +971,7 @@ function renderProgress() {
         '<span class="tl-snno">' + r.snno + '</span>' +
         '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m ? m.morada||'' : '') + '</span>' +
         '<span style="font-weight:600;white-space:nowrap;margin-left:4px">' + val + '</span>' +
-        (r.foto ? ' <span class="foto-icon">📷</span>' : '') +
+        (r.hasFoto ? ' <span class="foto-icon">📷</span>' : '') +
         '</div>';
     }).join('');
   }
@@ -893,8 +992,12 @@ function onFotoSelected(input) {
   const reader = new FileReader();
   reader.onload = function(e) {
     resizeFoto(e.target.result, 800, 0.7, function(base64) {
-      pendingFoto = base64;
-      document.getElementById('m-foto-img').src = base64;
+      pendingFoto = base64ToBlobSync(base64);
+      const url = URL.createObjectURL(pendingFoto);
+      const img = document.getElementById('m-foto-img');
+      if (img.dataset.objUrl) URL.revokeObjectURL(img.dataset.objUrl);
+      img.src = url;
+      img.dataset.objUrl = url;
       document.getElementById('m-foto-preview').style.display = 'block';
       document.getElementById('m-foto-btn').textContent = '📷 Substituir Foto';
     });
@@ -916,15 +1019,23 @@ function resizeFoto(dataUrl, maxWidth, quality, callback) {
   img.src = dataUrl;
 }
 
-function removeFoto() {
+async function removeFoto() {
+  const img = document.getElementById('m-foto-img');
+  if (img.dataset.objUrl) { URL.revokeObjectURL(img.dataset.objUrl); delete img.dataset.objUrl; }
   pendingFoto = null;
+  if (modalSnno != null) {
+    await deletePhoto(modalSnno);
+    const r = readings[modalSnno];
+    if (r && r.hasFoto) { r.hasFoto = false; saveState(); }
+  }
   document.getElementById('m-foto-preview').style.display = 'none';
   document.getElementById('m-foto-img').src = '';
+  document.getElementById('m-foto-input').value = '';
   document.getElementById('m-foto-btn').textContent = '📷 Tirar Foto';
 }
 
 // === MODAL ===
-function openModal(snno) {
+async function openModal(snno) {
   const m = meters.find(x => x.snno === snno);
   if (!m) return;
   modalSnno = snno;
@@ -952,15 +1063,27 @@ function openModal(snno) {
   npUpdateDisplay();
   document.getElementById('m-input').value = npValue;
   document.getElementById('m-warn').className = 'wb';
-  // Load existing photo
-  if (existing && existing.foto) {
-    pendingFoto = existing.foto;
-    document.getElementById('m-foto-img').src = existing.foto;
-    document.getElementById('m-foto-preview').style.display = 'block';
+  // Reset photo UI defaults, then load foto from IDB if hasFoto flag
+  const img = document.getElementById('m-foto-img');
+  if (img.dataset.objUrl) { URL.revokeObjectURL(img.dataset.objUrl); delete img.dataset.objUrl; }
+  pendingFoto = null;
+  document.getElementById('m-foto-preview').style.display = 'none';
+  img.src = '';
+  const fbtn = document.getElementById('m-foto-btn');
+  if (existing && existing.hasFoto) {
+    const blob = await getPhoto(snno);
+    if (blob) {
+      pendingFoto = blob;
+      const url = URL.createObjectURL(blob);
+      img.src = url;
+      img.dataset.objUrl = url;
+      document.getElementById('m-foto-preview').style.display = 'block';
+      if (fbtn) fbtn.textContent = '📷 Substituir Foto';
+    } else {
+      if (fbtn) fbtn.textContent = '📷 Tirar Foto';
+    }
   } else {
-    pendingFoto = null;
-    document.getElementById('m-foto-preview').style.display = 'none';
-    document.getElementById('m-foto-img').src = '';
+    if (fbtn) fbtn.textContent = '📷 Tirar Foto';
   }
   // Load existing note (open details if has note)
   const obsEl = document.getElementById('m-obs');
@@ -971,6 +1094,8 @@ function openModal(snno) {
 }
 
 function closeModal() {
+  const img = document.getElementById('m-foto-img');
+  if (img && img.dataset.objUrl) { URL.revokeObjectURL(img.dataset.objUrl); delete img.dataset.objUrl; }
   document.getElementById('r-modal').classList.remove('vis');
   modalSnno = null;
 }
@@ -1038,7 +1163,7 @@ function validateInput() {
   warn.className = 'wb';
 }
 
-function saveReading() {
+async function saveReading() {
   if (!modalSnno) return;
   if (!npValue) { toast('Introduza a leitura no teclado'); return; }
   const val = parseInt(npValue, 10);
@@ -1046,6 +1171,10 @@ function saveReading() {
   const m = meters.find(x => x.snno === modalSnno);
   const ref = m ? m.reference_m3 : null;
   const diff = ref != null ? val - Math.floor(ref) : null;
+  if (pendingFoto) {
+    try { await savePhoto(modalSnno, pendingFoto); }
+    catch(e) { toast('⚠️ Foto nao foi guardada: ' + (e && e.message || e)); return; }
+  }
   readings[modalSnno] = {
     snno: modalSnno,
     serie_contador: m ? m.serie_contador : null,
@@ -1054,11 +1183,11 @@ function saveReading() {
     timestamp: new Date().toISOString(),
     fechado: false,
     disc: diff != null && (diff < -10 || diff > 50),
-    foto: pendingFoto || null,
+    hasFoto: !!pendingFoto,
     operador: operador || null,
   };
   saveNota(modalSnno, document.getElementById('m-obs').value);
-  saveState();
+  if (!saveState()) return;
   closeModal();
   renderAll();
   toast('Leitura guardada' + (pendingFoto ? ' (com foto)' : ''));
@@ -1066,9 +1195,13 @@ function saveReading() {
 
 function saveFechado() { saveQuick('Fechado'); }
 
-function saveQuick(motivo) {
+async function saveQuick(motivo) {
   if (!modalSnno) return;
   const m = meters.find(x => x.snno === modalSnno);
+  if (pendingFoto) {
+    try { await savePhoto(modalSnno, pendingFoto); }
+    catch(e) { toast('⚠️ Foto nao foi guardada: ' + (e && e.message || e)); return; }
+  }
   readings[modalSnno] = {
     snno: modalSnno,
     serie_contador: m ? m.serie_contador : null,
@@ -1078,11 +1211,11 @@ function saveQuick(motivo) {
     fechado: true,
     motivo: motivo,
     disc: false,
-    foto: pendingFoto || null,
+    hasFoto: !!pendingFoto,
     operador: operador || null,
   };
   saveNota(modalSnno, document.getElementById('m-obs').value);
-  saveState();
+  if (!saveState()) return;
   closeModal();
   renderAll();
   toast(motivo);
@@ -1109,16 +1242,6 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-function base64ToBlob(b64) {
-  // strip data:image/jpeg;base64, prefix
-  const parts = b64.split(',');
-  const mime = parts[0].match(/:(.*?);/)[1];
-  const raw = atob(parts[1]);
-  const arr = new Uint8Array(raw.length);
-  for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
-  return new Blob([arr], {type: mime});
-}
-
 async function exportReadings() {
   const rList = Object.values(readings);
   if (!rList.length) { toast('Sem leituras para exportar'); return; }
@@ -1126,28 +1249,29 @@ async function exportReadings() {
   const safeName = (campanha || 'leituras').replace(/[^a-zA-Z0-9_-]/g, '_');
   const dateStr = new Date().toISOString().slice(0,10);
   const csv = buildCSV();
-  const fotos = rList.filter(r => r.foto);
+  const readingsComFoto = rList.filter(r => r.hasFoto);
 
   // If no photos or JSZip unavailable, export plain CSV
-  if (!fotos.length || typeof JSZip === 'undefined') {
+  if (!readingsComFoto.length || typeof JSZip === 'undefined') {
     downloadBlob(new Blob([csv], {type: 'text/csv;charset=utf-8'}), 'leituras_' + safeName + '_' + dateStr + '.csv');
     toast(rList.length + ' leitura(s) exportada(s) (CSV)');
     return;
   }
 
-  // Export ZIP with CSV + photos
-  toast('A gerar ZIP com ' + fotos.length + ' foto(s)...');
+  // Export ZIP with CSV + photos (fotos em IndexedDB)
+  toast('A gerar ZIP com ' + readingsComFoto.length + ' foto(s)...');
   try {
     var zip = new JSZip();
     zip.file('leituras.csv', csv);
     var fotosFolder = zip.folder('fotos');
-    fotos.forEach(r => {
-      const blob = base64ToBlob(r.foto);
-      fotosFolder.file(r.snno + '.jpg', blob);
-    });
+    let incluidas = 0;
+    for (const r of readingsComFoto) {
+      const blob = await getPhoto(r.snno);
+      if (blob) { fotosFolder.file(r.snno + '.jpg', blob); incluidas++; }
+    }
     const content = await zip.generateAsync({type: 'blob', compression: 'DEFLATE', compressionOptions: {level: 6}});
     downloadBlob(content, 'leituras_' + safeName + '_' + dateStr + '.zip');
-    toast(rList.length + ' leitura(s) + ' + fotos.length + ' foto(s) exportada(s)');
+    toast(rList.length + ' leitura(s) + ' + incluidas + ' foto(s) exportada(s)');
   } catch(e) {
     console.error('ZIP error:', e);
     // Fallback to CSV only
