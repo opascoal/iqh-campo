@@ -192,6 +192,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .quick-actions button:active{background:var(--bg)}
 .quick-actions .qa-fechado{border-color:#e74c3c;color:#e74c3c}
 .quick-actions .qa-sem{border-color:#f39c12;color:#856404}
+.quick-actions #m-foto-btn{grid-column:1 / -1;padding:16px 8px;font-size:1rem;border-color:var(--accent);color:var(--accent)}
 </style>
 </head>
 <body>
@@ -354,9 +355,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
     <!-- QUICK ACTIONS -->
     <div class="quick-actions">
       <button class="qa-fechado" onclick="saveQuick('Fechado')">&#128274; Fechado</button>
-      <button class="qa-sem" onclick="saveQuick('Sem Contador')">&#10060; Sem Contador</button>
       <button class="qa-sem" onclick="saveQuick('Sem Acesso')">&#128683; Sem Acesso</button>
-      <button onclick="document.getElementById('m-foto-input').click()" id="m-foto-btn">&#128247; Foto</button>
+      <button onclick="document.getElementById('m-foto-input').click()" id="m-foto-btn">&#128247; Tirar Foto</button>
     </div>
 
     <!-- FOTO (hidden input + preview) -->

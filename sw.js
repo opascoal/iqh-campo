@@ -1,4 +1,4 @@
-const CACHE = 'iqh-campo-v2';
+const CACHE = 'iqh-campo-v3';
 
 self.addEventListener('install', e => {
   e.waitUntil(
