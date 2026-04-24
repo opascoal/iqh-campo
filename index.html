@@ -187,12 +187,12 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .np-display.empty{color:var(--muted);font-weight:400;font-size:1.2rem}
 
 /* === QUICK ACTIONS === */
-.quick-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0}
+.quick-actions{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:6px;margin:8px 0}
 .quick-actions button{padding:10px 6px;font-size:.8rem;font-weight:600;border-radius:8px;cursor:pointer;border:1.5px solid var(--border);background:var(--card);color:var(--text);display:flex;align-items:center;justify-content:center;gap:4px}
 .quick-actions button:active{background:var(--bg)}
 .quick-actions .qa-fechado{border-color:#e74c3c;color:#e74c3c}
 .quick-actions .qa-sem{border-color:#f39c12;color:#856404}
-.quick-actions #m-foto-btn{grid-column:1 / -1;padding:16px 8px;font-size:1rem;border-color:var(--accent);color:var(--accent)}
+.quick-actions #m-foto-btn{grid-column:2;grid-row:1 / span 2;font-size:1rem;border-color:var(--accent);color:var(--accent)}
 </style>
 </head>
 <body>
